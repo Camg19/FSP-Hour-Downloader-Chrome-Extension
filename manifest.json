@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "FSP Hours Downloader",
+    "version": "1.1",
+
+    "permissions": [
+        "storage",
+        "tabs",
+        "activeTab",
+        "scripting",
+        "webRequest"
+    ],
+
+    "host_permissions": [
+        "https://app.flightschedulepro.com/*",
+        "https://usc-api.flightschedulepro.com/*",
+        "https://api-external.flightschedulepro.com/*",
+        "https://curriculum-api-external.flightschedulepro.com/*"
+    ],
+
+    "background": {
+        "service_worker": "service_worker.js"
+    },
+
+    "action": {
+        "default_popup": "popup.html"
+    }
+}

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>FSP Downloader Settings</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            width: 360px;
+            font-family: Arial, sans-serif;
+            background: #f5f6f8;
+            color: #1f2937;
+        }
+
+        .container {
+            padding: 20px;
+        }
+
+        .top-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .back-button {
+            border: none;
+            background: none;
+            font-size: 22px;
+            cursor: pointer;
+            padding: 2px 5px;
+            color: #374151;
+        }
+
+        .back-button:hover {
+            color: #111827;
+        }
+
+        .title {
+            font-size: 19px;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .settings-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 18px;
+        }
+
+        .card-title {
+            margin: 0 0 4px 0;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .card-description {
+            margin: 0 0 16px 0;
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 11px;
+            border: 1px solid #d1d5db;
+            border-radius: 7px;
+            background: white;
+            font-size: 14px;
+            color: #111827;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        input[type="text"]::placeholder {
+            color: #9ca3af;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 9px;
+            padding: 9px;
+        }
+
+        .checkbox-row input {
+            width: 16px;
+            height: 16px;
+            margin: 1px 0 0 0;
+            flex-shrink: 0;
+        }
+
+        .checkbox-content {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .checkbox-content label {
+            margin: 0;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .checkbox-description {
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .update-button {
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            background: #2563eb;
+            color: white;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .update-button:hover {
+            background: #1d4ed8;
+        }
+
+        .update-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .message {
+            min-height: 18px;
+            margin-top: 12px;
+            text-align: center;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .message.success {
+            color: #16a34a;
+        }
+
+        .message.error {
+            color: #dc2626;
+        }
+
+        .radio-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 9px;
+            margin-bottom: 14px;
+        }
+
+        .radio-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .radio-row input {
+            width: 16px;
+            height: 16px;
+            margin: 2px 0 0 0;
+            flex-shrink: 0;
+        }
+
+        .radio-content {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .radio-content label {
+            margin: 0;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .radio-description {
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="top-bar">
+
+            <button
+                id="backButton"
+                class="back-button"
+                title="Back">
+                ←
+            </button>
+
+            <h1 class="title">
+                Settings
+            </h1>
+
+        </div>
+
+
+        <div class="settings-card">
+
+            <h2 class="card-title">
+                Flight Schedule Pro
+            </h2>
+
+            <p class="card-description">
+                Enter your username exactly how it appears in FSP.
+            </p>
+
+
+            <div class="form-group">
+
+                <label for="username">
+                    Username
+                </label>
+
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    placeholder="Enter your FSP username"
+                    autocomplete="off">
+
+            </div>
+
+        </div>
+
+
+        <div class="settings-card">
+
+            <h2 class="card-title">
+                Flight Time
+            </h2>
+
+            <p class="card-description">
+                Choose which types of training time should be included in your download.
+            </p>
+
+
+            <div class="checkbox-row">
+
+                <input
+                    type="checkbox"
+                    id="includeSimulator">
+
+                <div class="checkbox-content">
+
+                    <label for="includeSimulator">
+                        Include simulator time
+                    </label>
+
+                    <span class="checkbox-description">
+                        Include FTD and simulator sessions when downloading your hours.
+                    </span>
+
+                </div>
+
+            </div>
+
+            <div class="checkbox-row">
+
+                <input
+                    type="checkbox"
+                    id="includeGbs">
+
+                <div class="checkbox-content">
+
+                    <label for="includeGbs">
+                        Include Ground Briefs
+                    </label>
+
+                    <span class="checkbox-description">
+                        Include Ground Briefs when downloading your hours.
+                    </span>
+
+                </div>
+
+            </div>
+
+            <div class="settings-card">
+
+    <h2 class="card-title">
+        Flight Logging
+    </h2>
+
+    <p class="card-description">
+        Choose how downloaded flight time should be logged.
+    </p>
+
+    <div class="radio-row">
+
+        <input
+            type="radio"
+            id="logDualGivenPIC"
+            name="flightLogMode"
+            value="logDualGivenPIC">
+
+        <div class="radio-content">
+            <label for="logDualGiven">
+                Dual Given
+            </label>
+
+            <span class="radio-description">
+                Log flight time as dual given.
+            </span>
+        </div>
+
+    </div>
+
+    <div class="radio-row">
+
+        <input
+            type="radio"
+            id="logDualReceivedPIC"
+            name="flightLogMode"
+            value="logDualReceivedPIC">
+
+        <div class="radio-content">
+            <label for="logDualReceived">
+                Dual Received with PIC
+            </label>
+
+            <span class="radio-description">
+                Log flight time as dual received with PIC.
+            </span>
+        </div>
+
+    </div>
+
+    <div class="radio-row">
+
+        <input
+            type="radio"
+            id="logDualReceivedNoPIC"
+            name="flightLogMode"
+            value="logDualReceivedNoPIC">
+
+        <div class="radio-content">
+            <label for="logDualReceived">
+                Dual Received No PIC
+            </label>
+
+            <span class="radio-description">
+                Log flight time as dual received with no PIC.
+            </span>
+        </div>
+
+    </div>
+
+    <div class="radio-row">
+
+        <input
+            type="radio"
+            id="logPIC"
+            name="flightLogMode"
+            value="pic">
+
+        <div class="radio-content">
+            <label for="logPIC">
+                PIC Only
+            </label>
+
+            <span class="radio-description">
+                Log flight time as PIC with no dual given or dual received.
+            </span>
+        </div>
+
+         </div>
+
+    </div>
+
+
+        </div>
+
+
+        <button
+            type="button"
+            id="updateSettings"
+            class="update-button">
+            Update Settings
+        </button>
+
+
+        <div
+            id="settingsStatus"
+            class="message">
+        </div>
+
+    </div>
+
+
+    <script src="settings.js"></script>
+
+</body>
+</html>

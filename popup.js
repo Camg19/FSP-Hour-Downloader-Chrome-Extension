@@ -38,92 +38,42 @@ function setConnectionStatus(message, color, enabled) {
 }
 
 async function runInitialChecks() {
-
-    const connectionText = document.getElementById("connectionText");
-    const statusDot = document.getElementById("statusDot");
-    const downloadButton = document.getElementById("downloadButton");
-
-    // Get current active tab
-    const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true
-    });
-
-
-    // Could not get tab
-    if (!tab || !tab.url) {
-
-        connectionText.textContent = "Unable to determine current tab";
-        statusDot.style.background = "#ef4444";
-        downloadButton.disabled = true;
-
-        return;
-    }
-
-
-    // Check that we're on Flight Schedule Pro
-    const onFSP =
-        tab.url.startsWith("https://app.flightschedulepro.com/App/");
-
-
-    if (!onFSP) {
-
-        connectionText.textContent = "Flight Schedule Pro is not open";
-        statusDot.style.background = "#ef4444";
-        downloadButton.disabled = true;
-
-        return;
-    }
-
-    const authorization = await getFSPAuthorization();
-
-    if (!authorization) {
-        throw new Error(
-            "No active Flight Schedule Pro session detected."
-        );
-    }
-
+    setConnectionStatus("Checking Flight Schedule Pro session...", "#f59e0b", false);
     try {
-
-        // Fetch operators from FSP
-        operators =
-            await getOperators(authorization);
-
-
-        // Put operators into select
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.url) {
+            setConnectionStatus("Unable to determine current tab", "#ef4444", false);
+            return;
+        }
+        if (!tab.url.startsWith("https://app.flightschedulepro.com/")) {
+            setConnectionStatus("Open Flight Schedule Pro and sign in", "#ef4444", false);
+            return;
+        }
+        const headers = await getFSPCoreHeaders();
+        if (!headers) {
+            setConnectionStatus("Refresh FSP, then reopen this extension", "#f59e0b", false);
+            return;
+        }
+        operators = await getOperators(headers);
         populateOperatorSelect(operators);
-
-
+        setConnectionStatus("Connected to Flight Schedule Pro", "#22c55e", true);
+    } catch (error) {
+        console.error("Unable to connect to FSP:", error);
         setConnectionStatus(
-            "Connected to Flight Schedule Pro",
-            "#22c55e",
-            true
-        );
-
-    }
-    catch (error) {
-
-        console.error(
-            "Unable to load operators:",
-            error
-        );
-
-
-        setConnectionStatus(
-            "Unable to load FSP operators",
-            "#ef4444",
-            false
+            error.message === "FSP authorization rejected."
+                ? "FSP rejected the API session. Refresh FSP and reopen this extension"
+                : "Unable to load FSP operators. Refresh FSP and try again",
+            "#ef4444", false
         );
     }
-
-    // Everything good
-    connectionText.textContent = "Connected to Flight Schedule Pro";
-    statusDot.style.background = "#22c55e";
-    downloadButton.disabled = false;
-
-
-
 }
+
+// Capture a session arriving while the popup is already open.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "session" && Object.entries(changes).some(([key, change]) => key.startsWith("fspRequestHeaders:") && change.newValue)) {
+        void runInitialChecks();
+    }
+});
 
 function populateOperatorSelect(operatorDict) {
 
@@ -215,7 +165,7 @@ downloadButton.addEventListener("click", async () => {
     //Check if on FSP
     const validFSPUrl =
         tab.url.startsWith(
-            "https://app.flightschedulepro.com/App/"
+            "https://app.flightschedulepro.com/"
         );
 
     //Error Handeling
@@ -239,18 +189,24 @@ downloadButton.addEventListener("click", async () => {
         console.error(error);
 
         status.textContent =
-            "Unable to download FSP data.";
+            error.message || "Unable to download FSP data.";
     }
 
 });
 
-async function getFSPAuthorization() {
-
-    const result = await chrome.storage.session.get(
-        "fspAuthorization"
-    );
-
-    return result.fspAuthorization ?? null;
+async function getFSPCoreHeaders() {
+    const key = "fspRequestHeaders:https://usc-api.flightschedulepro.com";
+    const result = await chrome.storage.session.get(key);
+    const headers = result[key];
+    if (!headers?.authorization || !headers["x-subscription-key"] || !headers["x-fsp-environment"]) {
+        return null;
+    }
+    return {
+        "Authorization": headers.authorization,
+        "x-subscription-key": headers["x-subscription-key"],
+        "x-fsp-environment": headers["x-fsp-environment"],
+        "Accept": "application/json, text/plain, */*"
+    };
 }
 
 async function loadSettings() {
@@ -286,21 +242,12 @@ function updateProgress(percent, message) {
 
 async function startDownload(getAllData, startDate, operatorId) {
 
-    const authorization = await getFSPAuthorization();
-
-    if (!authorization) {
-        throw new Error(
-            "No active Flight Schedule Pro session detected."
-        );
+    const headers = await getFSPCoreHeaders();
+    if (!headers) {
+        throw new Error("Refresh FSP and open your reservations, then retry.");
     }
-
     const settings = await loadSettings();
-    console.log("TESTT")
-    console.log(settings.flightLogMode)
-
-    if (!getAllData.checked && startDate.value) {
-        date = new Date(startDate.value);
-    }
+    const cutoffDate = getAllData ? null : startDate;
 
     updateProgress(
         1,
@@ -308,11 +255,12 @@ async function startDownload(getAllData, startDate, operatorId) {
     );
 
     const events = [];
-    let ind = 1;
+    let ind = 0;
+    let reservationsRead = 0;
 
     while (true) {
         const reservations = await getReservations(
-            authorization,
+            headers,
             operatorId,
             ind,
             25
@@ -320,14 +268,15 @@ async function startDownload(getAllData, startDate, operatorId) {
 
         const [flights, isFinished] = createFlightObjs(
             reservations,
-            startDate,
+            cutoffDate,
             true,
             settings.username
         );
 
         events.push(...flights);
+        reservationsRead += reservations.results.length;
 
-        if (flights.length === 0) {
+        if (reservations.results.length === 0) {
             break;
         }
 
@@ -335,7 +284,13 @@ async function startDownload(getAllData, startDate, operatorId) {
             break;
         }
 
-        ind++;
+        if (Number.isFinite(reservations.total) && reservationsRead >= reservations.total) {
+            break;
+        }
+        // FSP can normalize a request for page 0 to page 1.
+        ind = Number.isInteger(reservations.pageIndex)
+            ? Math.max(ind + 1, reservations.pageIndex + 1)
+            : ind + 1;
     }
 
     updateProgress(
@@ -343,11 +298,15 @@ async function startDownload(getAllData, startDate, operatorId) {
         "Reservations Loaded..."
     );
 
+    if (events.length === 0) {
+        throw new Error("No matching reservations found. Check your selected operator, date range, and the name in Settings (instructor or pilot first and last name).");
+    }
+
     const progressBarUpdateAmount = 98 / events.length
     var progressBarProgress = 2.0
 
     for (const event of events) {
-        await event.runAll(authorization, operatorId, settings.flightLogMode);
+        await event.runAll(headers, operatorId, settings.flightLogMode);
         progressBarProgress += progressBarUpdateAmount
         updateProgress(
             progressBarProgress,
@@ -371,39 +330,16 @@ async function startDownload(getAllData, startDate, operatorId) {
 }
 
 //FUNCTIONS FOR DOWNLOADING DATA
-async function getOperators(authorization) {
-
+async function getOperators(headers) {
     const response = await fetch(
-        "https://api-external.flightschedulepro.com/api/V1/myoperators",
-        {
-            method: "GET",
-
-            headers: {
-                "Authorization": authorization,
-                "Accept": "application/json"
-            }
-        }
+        "https://usc-api.flightschedulepro.com/core-app/api/V1/myoperators",
+        { method: "GET", headers }
     );
-
-
-    if (response.status === 401) {
-
-        await chrome.storage.session.remove(
-            "fspAuthorization"
-        );
-
-        throw new Error(
-            "FSP authorization expired."
-        );
+    if (response.status === 401 || response.status === 403) {
+        throw new Error("FSP authorization rejected.");
     }
-
-
     if (!response.ok) {
-
-        throw new Error(
-            `FSP returned status ${response.status}`
-        );
-
+        throw new Error(`FSP returned status ${response.status}`);
     }
 
     const data = await response.json();
@@ -428,89 +364,84 @@ async function getOperators(authorization) {
     return operatorDict;
 }
 
-async function getReservations(authorization, operatorId, pageindex=1, pagesize=25) {
-
+async function getReservations(headers, operatorId, pageIndex = 0, pageSize = 25) {
     const params = new URLSearchParams();
-    params.append("pageindex", pageindex);
-    params.append("pagesize", pagesize);
     params.append("dateTypeFilter", 2);
-    params.append("timeZoneBias", -240);
     params.append("operatorId", operatorId);
-
+    params.append("pageIndex", pageIndex);
+    params.append("pageSize", pageSize);
+    params.append("timeZoneBias", -new Date().getTimezoneOffset());
 
     const response = await fetch(
-        `https://api-external.flightschedulepro.com/api/V2/Reservation?${params}`,
-        {
-            method: "GET",
-            headers: {
-                "Authorization": authorization,
-                "Accept": "application/json"
-            }
-        }
+        `https://usc-api.flightschedulepro.com/core-app/api/V2/Reservation?${params}`,
+        { method: "GET", headers }
     );
-
-
-    if (response.status === 401) {
-        throw new Error(
-            "Reservations Not Downloaded"
-        );
+    if (response.status === 401 || response.status === 403) {
+        throw new Error("FSP rejected the reservations session. Refresh FSP and retry.");
     }
-
+    if (!response.ok) {
+        throw new Error(`Unable to load FSP reservations (status ${response.status}).`);
+    }
     const data = await response.json();
-
-    return data
+    if (!Array.isArray(data?.results)) {
+        throw new Error("FSP returned an unexpected reservations format.");
+    }
+    return data;
 }
 
-async function getReservation(authorization, resId, operatorId) {
-    const params = new URLSearchParams();
-    params.append("operatorId", operatorId);
-
+async function getReservation(resId, operatorId) {
+    const coreHeaders = await getFSPCoreHeaders();
+    if (!/^Bearer\s+\S+/i.test(coreHeaders?.Authorization ?? "")) {
+        throw new Error("Refresh your signed-in FSP dashboard, then retry the download.");
+    }
+    const key = "fspRequestHeaders:https://usc-api.flightschedulepro.com:reservation-detail";
+    const stored = await chrome.storage.session.get(key);
+    // FSP's detail endpoint uses the same session JWT with the Basic scheme.
+    // Prefer an observed API key; the default is from the supplied working FSP request.
+    const apiKey = stored[key]?.["x-fsp-apikey"] ?? "cb50ceed-44de-43ad-bc24-afe2f08f15de";
+    const detailHeaders = {
+        ...coreHeaders,
+        "Authorization": coreHeaders.Authorization.replace(/^Bearer\s+/i, "Basic "),
+        "x-fsp-apikey": apiKey
+    };
+    const params = new URLSearchParams({ operatorId });
     const response = await fetch(
-        `https://api-external.flightschedulepro.com/api/V2/Reservation/${resId}?${params}`,
+        `https://usc-api.flightschedulepro.com/core-app/api/V2/Reservation/${encodeURIComponent(resId)}?${params}`,
         {
             method: "GET",
-            headers: {
-                "Authorization": authorization,
-                "Accept": "application/json"
-            }
+            headers: detailHeaders
         }
     );
-
-    if (response.status === 401) {
-        console.log("Reservation Not Downloaded");
-        return null;
+    if (response.status === 401 || response.status === 403) {
+        throw new Error("FSP rejected the reservation-detail request. Refresh your signed-in FSP dashboard and retry.");
     }
-
+    if (!response.ok) {
+        throw new Error(`Unable to load FSP reservation ${resId} (status ${response.status}).`);
+    }
     const data = await response.json();
-
-    return data
-
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("FSP returned an unexpected reservation-detail format.");
+    }
+    return data;
 }
 
-async function getSession(authorization, sesId, operatorId) {
-    const params = new URLSearchParams();
-    params.append("operatorId", operatorId);
-    params.append("readOnly", "true");
-
+async function getSession(headers, sesId, operatorId) {
+    const params = new URLSearchParams({ operatorId, readOnly: "true" });
     const response = await fetch(
-        `https://curriculum-api-external.flightschedulepro.com/api/v1/trainingsessions/${sesId}?${params}`,
-        {
-            method: "GET",
-            headers: {
-                "Authorization": authorization,
-                "Accept": "application/json"
-            }
-        }
+        `https://usc-api.flightschedulepro.com/curriculum-app/api/v1/trainingsessions/${encodeURIComponent(sesId)}?${params}`,
+        { method: "GET", headers }
     );
-
-    if (response.status === 401) {
-        console.log("Session Not Downloaded");
-        return null;
+    if (response.status === 401 || response.status === 403) {
+        throw new Error("FSP rejected the training-session authorization. Refresh FSP and retry.");
     }
-
+    if (!response.ok) {
+        throw new Error(`Unable to load FSP training session ${sesId} (status ${response.status}).`);
+    }
     const data = await response.json();
-
-    return data
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("FSP returned an unexpected training-session format.");
+    }
+    return data;
 }
 
 //Flight OBJ
@@ -553,8 +484,8 @@ class Flight {
         this.sessionIds = [];
     }
 
-    async getLessonData(authorization, operatorId) {
-        const newData = await getReservation(authorization, this.resId, operatorId);
+    async getLessonData(operatorId) {
+        const newData = await getReservation(this.resId, operatorId);
 
         this.time = newData?.flightData?.hobbsTotalTime ?? 0;
 
@@ -581,14 +512,14 @@ class Flight {
         }
     }
 
-    async getSessionData(authorization, operatorId) {
+    async getSessionData(headers, operatorId) {
         let xc = 0;
         let ira = 0;
         let night = 0;
         let simulationTime = 0;
 
         for (const sessionId of this.sessionIds) {
-            const newData = await getSession(authorization, sessionId, operatorId);
+            const newData = await getSession(headers, sessionId, operatorId);
 
             this.toA = newData?.toAirportId ?? null;
             this.fromA = newData?.fromAirportId ?? null;
@@ -774,10 +705,10 @@ class Flight {
         };
     }
 
-    async runAll(authorization, operatorId, flightLogMode) {
+    async runAll(headers, operatorId, flightLogMode) {
         this.convertTimes();
-        await this.getLessonData(authorization, operatorId);
-        await this.getSessionData(authorization, operatorId);
+        await this.getLessonData(operatorId);
+        await this.getSessionData(headers, operatorId);
         this.dataRow = this.toArqueroRow(flightLogMode);
     }
 }
@@ -809,49 +740,26 @@ function createFlightObjs(
 
             const lessonsList = flight?.trainingSessions ?? [];
 
-            // Date check
-            let start;
-
-            try {
-                start = new Date(flight.start);
-
-                if (isNaN(start.getTime())) {
-                    start = new Date(1999, 0, 1);
-                }
-            } catch {
-                start = new Date(1999, 0, 1);
-            }
-
+            // Never turn an unknown date into an old flight and stop the download.
+            const start = new Date(flight.start);
             if (date) {
-                const compareDate =
-                    date instanceof Date
-                        ? date
-                        : new Date(date);
-
-                if (compareDate >= start) {
+                if (Number.isNaN(start.getTime())) {
+                    throw new Error("FSP returned a reservation without a valid start date.");
+                }
+                const compareDate = date instanceof Date ? date : new Date(`${date}T00:00:00`);
+                if (start < compareDate) {
+                    // Reservation history is newest first; older pages cannot match.
                     isFinished = true;
                     break;
                 }
             }
 
-            // Name check
             if (onlyIncludePilot && name) {
-                const searchName = name.toLowerCase();
-
-                const instructor =
-                    flight?.instructor?.toLowerCase() ?? "";
-
-                const pilotName =
-                    `${flight?.pilotFirstName ?? ""} ${flight?.pilotLastName ?? ""}`
-                        .trim()
-                        .toLowerCase();
-
-                if (
-                    searchName !== instructor &&
-                    searchName !== pilotName
-                ) {
-                    continue;
-                }
+                const normalizeName = value => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+                const searchName = normalizeName(name);
+                const instructor = normalizeName(flight.instructor);
+                const pilotName = normalizeName(`${flight.pilotFirstName ?? ""} ${flight.pilotLastName ?? ""}`);
+                if (searchName !== instructor && searchName !== pilotName) continue;
             }
 
             // Lesson names

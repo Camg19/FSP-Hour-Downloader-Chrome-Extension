@@ -11,6 +11,8 @@ Use this extension to download your hours from Flight Schedule Pro and import th
 
 ## Usage
 
+After installing or reloading the extension, refresh your signed-in Flight Schedule Pro dashboard before opening the extension. The extension captures the session from FSP's requests; opening an already-loaded dashboard may not provide a session. If the session has expired, sign in to FSP again and reopen the extension.
+
 1. Select the settings button in the top right
 2. Set the Username to be exactly what your name shows up as in FSP Dashboard
 3. Select if you want to include simulator or ground brief time

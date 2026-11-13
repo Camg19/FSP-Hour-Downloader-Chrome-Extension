@@ -42,15 +42,44 @@ vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
     assert.match(requests.at(-1).url, /valid-session/);
     assert.equal(warnings.length, 5);
     assert.match(warnings[0][0], /Crew Rest.*Test Pilot.*block-id/);
-    assert.equal(context.block.dataRow.TotalTime, 0); // This fixture has simulator time.
+    assert.equal(context.block.dataRow.TotalTime, 0); // No session PIC time; never fall back to Hobbs.
     vm.runInContext("getReservation = async () => ({ flightData: { hobbsTotalTime: 1.5 }, trainingSessions: [{ sessionId: null }] })", context);
     const beforeMissing = requests.length;
     await vm.runInContext("block.runAll(testHeaders, '165587', 'pic')", context);
     assert.equal(requests.length, beforeMissing);
-    assert.equal(context.block.dataRow.TotalTime, 1.5);
+    assert.equal(context.block.dataRow.TotalTime, 0);
     vm.runInContext("getReservation = async () => ({ trainingSessions: [] })", context);
     await vm.runInContext("block.runAll(testHeaders, '165587', 'pic')", context);
     assert.match(warnings.at(-1)[0], /No training session attached.*Crew Rest/);
+    // Distinct session totals must win over Hobbs for every logging mode.
+    vm.runInContext(`getReservation = async () => ({ flightData: { hobbsTotalTime: 9, hobbsIn: 100, hobbsOut: 109 }, trainingSessions: [{ sessionId: 'one' }, { sessionId: 'two' }] })`, context);
+    payload.trainingSessionTimesSummary.totalDual = 1.4;
+    payload.trainingSessionTimesSummary.totalPIC = 0.3;
+    for (const [mode, total, given, received, pic] of [
+        ['logDualGivenPIC', 2.8, 2.8, 0, 2.8],
+        ['logDualReceivedPIC', 2.8, 0, 2.8, 2.8],
+        ['logDualReceivedNoPIC', 2.8, 0, 2.8, 0],
+        ['pic', 0.6, 0, 0, 0.6]
+    ]) {
+        context.mode = mode;
+        await vm.runInContext("flight.runAll(testHeaders, '165587', mode)", context);
+        const row = context.flight.dataRow;
+        assert.equal(row.TotalTime, total);
+        assert.equal(row.DualGiven, given);
+        assert.equal(row.DualReceived, received);
+        assert.equal(row.PIC, pic);
+        assert.equal(row.HobbsStart, 100);
+        assert.equal(row.HobbsEnd, 109);
+        assert.equal(row.SimulatedFlight, 0.2);
+    }
+    // Decimal strings sum numerically, including explicit zero and missing totals.
+    payload.trainingSessionTimesSummary.totalDual = '0.1';
+    payload.trainingSessionTimesSummary.totalPIC = 0;
+    await vm.runInContext("flight.runAll(testHeaders, '165587', 'logDualGivenPIC')", context);
+    assert.equal(context.flight.dataRow.TotalTime, 0.2);
+    delete payload.trainingSessionTimesSummary.totalDual;
+    await vm.runInContext("flight.runAll(testHeaders, '165587', 'logDualGivenPIC')", context);
+    assert.equal(context.flight.dataRow.TotalTime, 0);
     for (const status of [401, 403, 404, 500]) {
         response = { ok: false, status, json: async () => { throw Error('Must not parse failed response'); } };
         await assert.rejects(vm.runInContext("getSession(testHeaders, 'session-id', '165587')", context), /FSP/);

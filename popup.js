@@ -459,6 +459,8 @@ class Flight {
     ) {
         this.aircraft = aircraft;
         this.time = null;
+        this.dualTime = 0;
+        this.picTime = 0;
         this.resId = resId;
         this.student = student;
         this.course = course;
@@ -514,7 +516,7 @@ class Flight {
             this.sessionIds.push(sessionId);
         }
         if (trainingSessions.length === 0) {
-            console.warn(`[FSP] No training session attached; continuing with reservation data. ${this.eventDescription()}`);
+            console.warn(`[FSP] No training session attached; logged session time will be zero. ${this.eventDescription()}`);
         }
     }
 
@@ -533,9 +535,14 @@ class Flight {
         let ira = 0;
         let night = 0;
         let simulationTime = 0;
+        let dualTime = 0;
+        let picTime = 0;
 
         for (const sessionId of this.sessionIds) {
             const newData = await getSession(headers, sessionId, operatorId);
+            const summary = newData?.trainingSessionTimesSummary;
+            dualTime += Number(summary?.totalDual ?? 0);
+            picTime += Number(summary?.totalPIC ?? 0);
 
             this.toA = newData?.toAirportId ?? null;
             this.fromA = newData?.fromAirportId ?? null;
@@ -554,6 +561,9 @@ class Flight {
         this.instruent = ira;
         this.night = night;
         this.simulationTime = simulationTime
+        // Round accumulated decimal hours to avoid values such as 0.30000000000000004.
+        this.dualTime = Math.round(dualTime * 1000000) / 1000000;
+        this.picTime = Math.round(picTime * 1000000) / 1000000;
     }
 
     toArqueroRow(flightLogMode) {
@@ -592,13 +602,10 @@ class Flight {
             ].join(":");
         };
 
-        //don't include sim time in total time
-        var totalTimeVar = null;
-        if (this.simulationTime > 0) {
-            totalTimeVar = 0
-        } else {
-            totalTimeVar = this.time
-        }
+        // Session flight totals exclude simulator and ground time. Hobbs is
+        // retained separately and is never a fallback for missing session time.
+        const loggedTime = flightLogMode === "pic" ? this.picTime : this.dualTime;
+        const totalTimeVar = loggedTime;
 
 
         var dualGivenVar = null;
@@ -606,23 +613,23 @@ class Flight {
         var dualReceivedVar = null;
         if (flightLogMode == "logDualGivenPIC") {
             console.log("Given")
-            dualGivenVar = this.time
-            PICVar = this.time
+            dualGivenVar = loggedTime
+            PICVar = loggedTime
             dualReceivedVar = 0
         } else if (flightLogMode == "logDualReceivedPIC") {
             console.log("RecPic")
             dualGivenVar = 0
-            PICVar = this.time
-            dualReceivedVar = this.time
+            PICVar = loggedTime
+            dualReceivedVar = loggedTime
         } else if (flightLogMode == "logDualReceivedNoPIC"){
             console.log("RecNoPic")
             dualGivenVar = 0
             PICVar = 0
-            dualReceivedVar = this.time
+            dualReceivedVar = loggedTime
         } else if (flightLogMode == "pic"){
             console.log("Pic")
             dualGivenVar = 0
-            PICVar = this.time
+            PICVar = loggedTime
             dualReceivedVar = 0
         } else {
             console.log("OOPs??")

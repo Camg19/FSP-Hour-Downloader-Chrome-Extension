@@ -17,10 +17,11 @@ After installing or reloading the extension, refresh your signed-in Flight Sched
 2. Set the Username to be exactly what your name shows up as in FSP Dashboard
 3. Select if you want to include simulator or ground brief time
 4. Select how you want the time to be logged.
-    * Dual Given: All time will be logged as Dual Given and PIC time.
-    * Dual Received with PIC: All time will be logged as PIC time with Dual Received
-    * Dual Received No PIC: All time will be logged as Dual Received with no PIC
-    * PIC Only: All time will only be logged as PIC time
+    * Dual Given: Sum session `totalDual` as Total Time, Dual Given and PIC.
+    * Dual Received with PIC: Sum session `totalDual` as Total Time, Dual Received and PIC.
+    * Dual Received No PIC: Sum session `totalDual` as Total Time and Dual Received; PIC is zero.
+    * PIC Only: Sum session `totalPIC` as Total Time and PIC; dual time is zero.
+    * Totals include all attached sessions. Missing session time stays zero rather than falling back to Hobbs. Hobbs meter readings are still exported separately. Simulator time remains in SimulatedFlight.
 5. Select "Update Settngs" to save the settings and return to the main screen
 6. Navigate to your dashboard on FSP and make sure you are logged in. The extension is active when it says its connected to FSP with a green light
 7. Select the operator and whether to download all time from FSP or to start from a specific date.

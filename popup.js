@@ -454,7 +454,8 @@ class Flight {
         lesson = null,
         startTime = null,
         endTime = null,
-        instructor = null
+        instructor = null,
+        eventName = null
     ) {
         this.aircraft = aircraft;
         this.time = null;
@@ -462,6 +463,7 @@ class Flight {
         this.student = student;
         this.course = course;
         this.lesson = lesson;
+        this.eventName = eventName;
 
         this.hobbsStart = null;
         this.hobbsEnd = null;
@@ -484,6 +486,11 @@ class Flight {
         this.sessionIds = [];
     }
 
+    eventDescription() {
+        const name = this.eventName || this.lesson || this.course || this.aircraft || "Unnamed event";
+        return `${name} | ${this.startTime ? new Date(this.startTime).toLocaleString() : "Unknown date"} | ${this.student || "No pilot"} | Reservation ${this.resId}`;
+    }
+
     async getLessonData(operatorId) {
         const newData = await getReservation(this.resId, operatorId);
 
@@ -497,8 +504,17 @@ class Flight {
 
         const trainingSessions = newData?.trainingSessions ?? [];
 
+        this.sessionIds = [];
         for (const trainingSession of trainingSessions) {
-            this.sessionIds.push(trainingSession.sessionId);
+            const sessionId = trainingSession?.sessionId;
+            if (sessionId == null || String(sessionId).trim() === "") {
+                console.warn(`[FSP] Skipping training-session lookup: no session ID. ${this.eventDescription()}`, { trainingSession });
+                continue;
+            }
+            this.sessionIds.push(sessionId);
+        }
+        if (trainingSessions.length === 0) {
+            console.warn(`[FSP] No training session attached; continuing with reservation data. ${this.eventDescription()}`);
         }
     }
 
@@ -706,10 +722,16 @@ class Flight {
     }
 
     async runAll(headers, operatorId, flightLogMode) {
-        this.convertTimes();
-        await this.getLessonData(operatorId);
-        await this.getSessionData(headers, operatorId);
-        this.dataRow = this.toArqueroRow(flightLogMode);
+        try {
+            this.convertTimes();
+            await this.getLessonData(operatorId);
+            await this.getSessionData(headers, operatorId);
+            this.dataRow = this.toArqueroRow(flightLogMode);
+        } catch (error) {
+            const contextualError = new Error(`${error.message} Event: ${this.eventDescription()}`, { cause: error });
+            console.error(`[FSP] Failed event: ${this.eventDescription()}`, contextualError);
+            throw contextualError;
+        }
     }
 }
 
@@ -777,7 +799,8 @@ function createFlightObjs(
                 lessons,
                 flight.start,
                 flight.end,
-                flight.instructor
+                flight.instructor,
+                flight.name || flight.title || flight.eventName || flight.reservationName || null
             );
 
             flightList.push(newFlight);

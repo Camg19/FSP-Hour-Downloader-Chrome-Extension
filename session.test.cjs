@@ -5,7 +5,9 @@ const headers = { Authorization: 'Bearer test-token', 'x-subscription-key': 'tes
 const payload = { toAirportId: 'KJFK', fromAirportId: 'KBOS', viaAirportIds: ['KPVD'], trainingSessionTimesSummary: { totalXC: 1.2, totalNight: 0.4, instrumentActual: 0.2, totalSim: 0.1 } };
 let response = { ok: true, status: 200, json: async () => payload };
 const requests = [];
-const context = vm.createContext({ console: { log() {} }, URLSearchParams, testHeaders: headers,
+const warnings = [];
+const errors = [];
+const context = vm.createContext({ console: { log() {}, warn(...args) { warnings.push(args); }, error(...args) { errors.push(args); } }, URLSearchParams, testHeaders: headers,
     document: { getElementById: () => ({ addEventListener() {}, style: {} }), addEventListener() {} },
     chrome: { storage: { onChanged: { addListener() {} } } },
     fetch: async (url, options) => { requests.push({ url, options }); return response; }
@@ -29,12 +31,33 @@ vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
     assert.equal(context.flight.simulationTime, 0.2);
     assert.equal(context.flight.toA, 'KJFK');
     assert.equal(context.flight.dataRow.CrossCountry, 2.4);
+    // Schedule blocks and briefs can have absent IDs mixed with valid sessions.
+    vm.runInContext(`
+        getReservation = async () => ({ flightData: { hobbsTotalTime: 1.5 }, trainingSessions: [null, {}, { sessionId: null }, { sessionId: '' }, { sessionId: '  ' }, { sessionId: 'valid-session' }] });
+        globalThis.block = createFlightObjs({ results: [{ reservationId: 'block-id', name: 'Crew Rest', resource: 'N123', start: '2026-11-13T12:00:00', pilotFirstName: 'Test', pilotLastName: 'Pilot' }] }, null, false)[0][0];
+    `, context);
+    const beforeBlock = requests.length;
+    await vm.runInContext("block.runAll(testHeaders, '165587', 'pic')", context);
+    assert.equal(requests.length, beforeBlock + 1);
+    assert.match(requests.at(-1).url, /valid-session/);
+    assert.equal(warnings.length, 5);
+    assert.match(warnings[0][0], /Crew Rest.*Test Pilot.*block-id/);
+    assert.equal(context.block.dataRow.TotalTime, 0); // This fixture has simulator time.
+    vm.runInContext("getReservation = async () => ({ flightData: { hobbsTotalTime: 1.5 }, trainingSessions: [{ sessionId: null }] })", context);
+    const beforeMissing = requests.length;
+    await vm.runInContext("block.runAll(testHeaders, '165587', 'pic')", context);
+    assert.equal(requests.length, beforeMissing);
+    assert.equal(context.block.dataRow.TotalTime, 1.5);
+    vm.runInContext("getReservation = async () => ({ trainingSessions: [] })", context);
+    await vm.runInContext("block.runAll(testHeaders, '165587', 'pic')", context);
+    assert.match(warnings.at(-1)[0], /No training session attached.*Crew Rest/);
     for (const status of [401, 403, 404, 500]) {
         response = { ok: false, status, json: async () => { throw Error('Must not parse failed response'); } };
         await assert.rejects(vm.runInContext("getSession(testHeaders, 'session-id', '165587')", context), /FSP/);
     }
-    vm.runInContext("globalThis.failedFlight = new Flight('N123', 'reservation-id')", context);
-    await assert.rejects(vm.runInContext("failedFlight.runAll(testHeaders, '165587', 'pic')", context), /FSP/);
+    vm.runInContext("getReservation = async () => ({ trainingSessions: [{ sessionId: 'bad-session' }] }); globalThis.failedFlight = new Flight('N123', 'reservation-id', 'Test Pilot', null, 'Ground Brief')", context);
+    await assert.rejects(vm.runInContext("failedFlight.runAll(testHeaders, '165587', 'pic')", context), /FSP.*Ground Brief.*reservation-id/);
+    assert.match(errors.at(-1)[0], /Ground Brief.*reservation-id/);
     assert.equal(context.failedFlight.dataRow, undefined);
     for (const invalid of [null, [], 'invalid']) {
         response = { ok: true, json: async () => invalid };
